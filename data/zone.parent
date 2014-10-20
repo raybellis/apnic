@@ -1,0 +1,9 @@
+$TTL 1m
+@	IN	SOA	alnitak73.dyndns.org. research.apnic.net.  (
+				2014060101	; Serial
+				3600		; Refresh
+				900			; Retry
+				1			; Expire
+				60 )		; Minimum
+
+	IN	NS		alnitak73.dyndns.org.
