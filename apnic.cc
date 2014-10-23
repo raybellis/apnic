@@ -409,6 +409,10 @@ void APNIC::child_callback(ldns_pkt *resp, ldns_rdf *qname, ldns_rr_type qtype, 
 void APNIC::callback(evldns_server_request *srq,
 				 ldns_rdf *qname, ldns_rr_type qtype, ldns_rr_class qclass)
 {
+	/* log request time for later */
+	timeval tv;
+	gettimeofday(&tv, NULL);
+
 	/* expire old zone data */
 	kill_orphans();
 
@@ -426,7 +430,8 @@ void APNIC::callback(evldns_server_request *srq,
 	ldns_pkt *resp = srq->response = evldns_response(req, LDNS_RCODE_NOERROR);
 
 	/* check DNSSEC flags */
-	bool do_bit = ldns_pkt_edns_do(req);
+	bool edns = ldns_pkt_edns(req);
+	bool do_bit = edns && ldns_pkt_edns_do(req);
 
 	/* if not, RCODE = REFUSED */
 	if (is_top_domain) {
@@ -442,6 +447,42 @@ void APNIC::callback(evldns_server_request *srq,
 
 	/* request EDNS */
 	ldns_pkt_set_edns_do(resp, do_bit);
+
+	/* convert packet to wire format */
+	ldns_status status = ldns_pkt2wire(&srq->wire_response, resp, &srq->wire_resplen);
+
+	/* log it */
+	char host[NI_MAXHOST], port[NI_MAXSERV];
+	if (getnameinfo((sockaddr *)&srq->addr, srq->addrlen,
+					host, sizeof(host),
+					port, sizeof(port),
+					NI_NUMERICHOST | NI_NUMERICSERV) != 0)
+	{
+		strcpy(host, "unknown");
+		strcpy(port, "0");
+	}
+
+	ldns_buffer *qname_buf = ldns_buffer_new(256);
+	ldns_rdf2buffer_str_dname(qname_buf, qname);
+	char *qclass_str = ldns_rr_class2str(qclass);
+	char *qtype_str = ldns_rr_type2str(qtype);
+
+	fprintf(stdout,
+		"%ld.%06ld client %s#%s: query: %s %s %s %s%s%s%s %d %d\n",
+		tv.tv_sec, tv.tv_usec,
+		host, port,
+		 ldns_buffer_export(qname_buf), qclass_str, qtype_str,
+		ldns_pkt_rd(req) ? "+" : "-",		// RD
+		edns ? "E" : "",					// EDNS
+		do_bit ? "D": "",					// DO
+		ldns_pkt_cd(req) ? "C" : "",		// CD
+		ldns_pkt_get_rcode(resp),
+		srq->wire_resplen
+	);
+
+	free(qtype_str);
+	free(qclass_str);
+	ldns_buffer_free(qname_buf);
 }
 
 // --------------------------------------------------------------------
