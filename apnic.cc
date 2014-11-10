@@ -468,12 +468,13 @@ void APNIC::callback(evldns_server_request *srq,
 	char *qtype_str = ldns_rr_type2str(qtype);
 
 	fprintf(stdout,
-		"%ld.%06ld client %s#%s: query: %s %s %s %s%s%s%s (%s) %d %d\n",
+		"%ld.%06ld client %s#%s: query: %s %s %s %s%s%s%s%s (%s) %d %d\n",
 		tv.tv_sec, tv.tv_usec,
 		host, port,
 		 ldns_buffer_export(qname_buf), qclass_str, qtype_str,
 		ldns_pkt_rd(req) ? "+" : "-",		// RD
 		edns ? "E" : "",					// EDNS
+		srq->is_tcp ? "T": "",				// TCP
 		do_bit ? "D": "",					// DO
 		ldns_pkt_cd(req) ? "C" : "",		// CD
 		"",									// RDATA - not supported
