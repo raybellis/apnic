@@ -220,6 +220,13 @@ void APNIC::create_parent_zone()
 
 APZone *APNIC::create_child_zone(ldns_rdf *origin)
 {
+	/* some minimal debug */
+	ldns_buffer *qname_buf = ldns_buffer_new(256);
+        ldns_rdf2buffer_str_dname(qname_buf, origin);
+	fprintf(stdout, "origin: %s\n", ldns_buffer_export(qname_buf));
+        ldns_buffer_free(qname_buf);
+
+
 	/* create the child zone */
 	ldns_dnssec_zone *child_zone = load_zone(origin, child_file);
 	if (!is_signed) {
@@ -546,7 +553,7 @@ int main(int argc, char *argv[])
 	char *host = "127.0.0.1";
 	char *dom;
 	char *par;
-	char *chi;
+	char *chi;	/* ty-loc-zonefile */
 	char *key;
 
 	APNIC	*cback;	/* to take the callback function decl */
@@ -554,6 +561,8 @@ int main(int argc, char *argv[])
 	while (argc > 0 && **argv=='-') {
 
 		char o = *++*argv;
+		fprintf(stdout, "argc:%d\n", argc);
+		fprintf(stdout, "argv:%c\n", o);
 
 		switch (o) {
 			case 'h': argc--; argv++; host = *argv; break;
@@ -574,8 +583,8 @@ int main(int argc, char *argv[])
 	/* setup evldns */
 	event_init();
 	evldns_server *p = evldns_add_server();
-	evldns_add_server_port(p, ap_bind_to_udp4_port(host, 53));
-	evldns_add_server_port(p, ap_bind_to_tcp4_port(host, 53, 10));
+	evldns_add_server_port(p, ap_bind_to_udp4_port(host, 15353));
+	evldns_add_server_port(p, ap_bind_to_tcp4_port(host, 15353, 10));
 
 	/* TODO - drop privs here if running as root */
 
@@ -587,6 +596,7 @@ int main(int argc, char *argv[])
 	} else if (ty == 1) {
 		cback = new APNIC::APNIC (dom, key, par, chi, true, true);
 	} else if (ty == 2) {
+		fprintf(stdout, "dom:%s key:%s par:%s chi:%s true, false\n", dom, key, par, chi);
 		cback = new APNIC::APNIC (dom, key, par, chi, true, false);
 	} else {
 		exit(1);
