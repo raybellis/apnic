@@ -220,14 +220,32 @@ void APNIC::create_parent_zone()
 
 APZone *APNIC::create_child_zone(ldns_rdf *origin)
 {
-	/* some minimal debug */
+	char *qbuf;
 	ldns_buffer *qname_buf = ldns_buffer_new(256);
         ldns_rdf2buffer_str_dname(qname_buf, origin);
-	fprintf(stdout, "origin: %s\n", ldns_buffer_export(qname_buf));
-        ldns_buffer_free(qname_buf);
+        qbuf = (char *)ldns_buffer_export(qname_buf);
 
+	if     (qbuf[2] == 'u') {
+		is_signed = false;
+		is_broken = false;
+	} else if (qbuf[2] == 'i') {
+		is_signed = true;
+		is_broken = true;
+	} else if (qbuf[2] == 's') {
+                is_signed = true;
+                is_broken = false;
+        } else {
+		is_signed = true;
+		is_broken = true;
+	}
+
+        ldns_buffer_free(qname_buf);
+	free(qbuf);
 
 	/* create the child zone */
+	child_file[strlen(child_file)-1] = qbuf[1];
+	child_file[strlen(child_file)-2] = qbuf[0];
+
 	ldns_dnssec_zone *child_zone = load_zone(origin, child_file);
 	if (!is_signed) {
 		return new APZone(child_zone, NULL, NULL);
@@ -561,8 +579,6 @@ int main(int argc, char *argv[])
 	while (argc > 0 && **argv=='-') {
 
 		char o = *++*argv;
-		fprintf(stdout, "argc:%d\n", argc);
-		fprintf(stdout, "argv:%c\n", o);
 
 		switch (o) {
 			case 'h': argc--; argv++; host = *argv; break;
@@ -583,8 +599,8 @@ int main(int argc, char *argv[])
 	/* setup evldns */
 	event_init();
 	evldns_server *p = evldns_add_server();
-	evldns_add_server_port(p, ap_bind_to_udp4_port(host, 15353));
-	evldns_add_server_port(p, ap_bind_to_tcp4_port(host, 15353, 10));
+	evldns_add_server_port(p, ap_bind_to_udp4_port(host, 53));
+	evldns_add_server_port(p, ap_bind_to_tcp4_port(host, 53, 10));
 
 	/* TODO - drop privs here if running as root */
 
