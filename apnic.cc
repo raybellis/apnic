@@ -551,10 +551,10 @@ int main(int argc, char *argv[])
 
 	int ty = 3;
 	char *host = "127.0.0.1";
-	char *dom;
-	char *par;
-	char *chi;	/* ty-loc-zonefile */
-	char *key;
+	char *dom = NULL;
+	char *par = NULL;
+	char *chi = NULL;	/* ty-loc-zonefile */
+	char *key = NULL;
 
 	APNIC	*cback;	/* to take the callback function decl */
 
@@ -566,9 +566,9 @@ int main(int argc, char *argv[])
 
 		switch (o) {
 			case 'h': argc--; argv++; host = *argv; break;
-			case 'u': argc--; argv++; ty = 0; break;
-			case 'i': argc--; argv++; ty = 1; break;
-			case 'v': argc--; argv++; ty = 2; break;
+			case 'u': argc--; ty = 0; break;
+			case 'i': argc--; ty = 1; break;
+			case 'v': argc--; ty = 2; break;
 			case 'd': argc--; argv++; dom = *argv; break;
 			case 'p': argc--; argv++; par = *argv; break;
 			case 'c': argc--; argv++; chi = *argv; break;
