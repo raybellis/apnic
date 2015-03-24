@@ -39,6 +39,11 @@
 #include <evldns.h>
 #include <apevldns.h>
 
+/* for stat() */
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+
 using std::string;
 
 class APZone {
@@ -220,7 +225,20 @@ void APNIC::create_parent_zone()
 
 APZone *APNIC::create_child_zone(ldns_rdf *origin)
 {
+
+	/* to hold copy of child_file */
+	char	cfile[256];
+
+	/* to check file existence */
+	struct stat buffer;
+	int         status;
+
+	/* to check query attributes at front of name */
+
 	char *qbuf;
+
+	/* get string from query name, and check for which zone to serve */
+
 	ldns_buffer *qname_buf = ldns_buffer_new(256);
         ldns_rdf2buffer_str_dname(qname_buf, origin);
         qbuf = (char *)ldns_buffer_export(qname_buf);
@@ -242,11 +260,27 @@ APZone *APNIC::create_child_zone(ldns_rdf *origin)
         ldns_buffer_free(qname_buf);
 	free(qbuf);
 
-	/* create the child zone */
-	child_file[strlen(child_file)-1] = qbuf[1];
-	child_file[strlen(child_file)-2] = qbuf[0];
+	/* create the specific child zone */
+	child_file.copy(cfile, child_file.length(), 0);
 
-	ldns_dnssec_zone *child_zone = load_zone(origin, child_file);
+	cfile[strlen(cfile)-1] = qbuf[1];
+	cfile[strlen(cfile)-2] = qbuf[0];
+
+	/* check it exists */
+
+	status = stat(cfile, &buffer);
+
+	/* serve base zone unsigned */
+	ldns_dnssec_zone *child_zone;
+
+	if (status != 0) {
+		fprintf(stdout, "can't serve %s\n", cfile);
+		child_zone = load_zone(origin, child_file);
+	} else {
+		fprintf(stdout, "serve %s\n", cfile);
+		child_zone = load_zone(origin, cfile);
+	}
+
 	if (!is_signed) {
 		return new APZone(child_zone, NULL, NULL);
 	}
