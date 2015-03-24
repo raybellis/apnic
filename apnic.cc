@@ -551,10 +551,10 @@ int main(int argc, char *argv[])
 
 	int ty = 3;
 	char *host = "127.0.0.1";
-	char *dom = NULL;
-	char *par = NULL;
-	char *chi = NULL;	/* ty-loc-zonefile */
-	char *key = NULL;
+	char *dom = "";
+	char *par = "";
+	char *chi = "";	/* ty-loc-zonefile */
+	char *key = "";
 
 	APNIC	*cback;	/* to take the callback function decl */
 
