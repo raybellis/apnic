@@ -423,6 +423,12 @@ void APNIC::synthesize_ds_record(ldns_pkt *resp, ldns_rdf *qname, APZone *apz, b
 
 void APNIC::kill_orphans()
 {
+	static int attempts = 0;
+
+	/* Only do this every 100 queries */
+	if (++attempts < 100) return;
+	attempts = 0;
+
 	/* what time is it? */
 	time_t now = time((time_t *)0);
 	time_t then = now - 60;
