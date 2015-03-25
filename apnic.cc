@@ -424,7 +424,7 @@ void APNIC::synthesize_ds_record(ldns_pkt *resp, ldns_rdf *qname, APZone *apz, b
 void APNIC::kill_orphans()
 {
 	/* what time is it? */
-	time_t now = time((time_t)0);
+	time_t now = time((time_t *)0);
 	time_t then = now - 60;
 
 	ChildMap::iterator it = children.begin();
@@ -529,7 +529,7 @@ void APNIC::callback(evldns_server_request *srq,
 	char *qtype_str = ldns_rr_type2str(qtype);
 
 	fprintf(stdout,
-		"%ld.%06ld client %s#%s: query: %s %s %s %s%s%s%s%s (%s) %d %d\n",
+		"%ld.%06d client %s#%s: query: %s %s %s %s%s%s%s%s (%s) %d %lu\n",
 		tv.tv_sec, tv.tv_usec,
 		host, port,
 		 ldns_buffer_export(qname_buf), qclass_str, qtype_str,
@@ -602,12 +602,14 @@ int main(int argc, char *argv[])
 	argc--;
 	argv++;
 
+        char localhost[] = "127.0.0.1";
+
 	int ty = 3;
-	char *host = "127.0.0.1";
-	char *dom = "";
-	char *par = "";
-	char *chi = "";	/* ty-loc-zonefile */
-	char *key = "";
+	char *host = localhost; // can't be const because ap_bind_to_??p4_port() doesn't take a const argument
+	const char *dom = "";
+	const char *par = "";
+	const char *chi = "";	/* ty-loc-zonefile */
+	const char *key = "";
 
 	APNIC	*cback;	/* to take the callback function decl */
 
