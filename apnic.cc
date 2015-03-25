@@ -97,6 +97,7 @@ private:
 	ldns_rdf						*origin;
 	int								 origin_count;
 	ldns_dnssec_zone				*parent_zone;
+        ldns_key_list                                   *parent_keys;
 	ChildMap						 children;
 
 private:
@@ -216,11 +217,8 @@ void APNIC::sign_zone(ldns_dnssec_zone *zone, ldns_key_list *keys)
 void APNIC::create_parent_zone()
 {
 	parent_zone = load_zone(origin, parent_file);
-	if (is_signed) {
-		ldns_key_list *parent_keys = create_signing_key(this->origin);
-		sign_zone(parent_zone, parent_keys);
-		ldns_key_list_free(parent_keys);
-	}
+	parent_keys = create_signing_key(this->origin);
+	sign_zone(parent_zone, parent_keys);
 }
 
 APZone *APNIC::create_child_zone(ldns_rdf *origin)
@@ -315,9 +313,7 @@ APZone *APNIC::create_child_zone(ldns_rdf *origin)
 	ldns_key_list_free(child_keys);
 
 	/* create RRSIGs over the DS - NB: requires the parent origin */
-	ldns_key_list *parent_keys = create_signing_key(this->origin);
 	ldns_rr_list *ds_rrsig = ldns_sign_public(ds_list, parent_keys);
-	ldns_key_list_free(parent_keys);
 
 	return new APZone(child_zone, ds_list, ds_rrsig);
 }
