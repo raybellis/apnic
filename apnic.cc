@@ -257,14 +257,15 @@ APZone *APNIC::create_child_zone(ldns_rdf *origin)
 		is_broken = true;
 	}
 
-        ldns_buffer_free(qname_buf);
-	free(qbuf);
-
 	/* create the specific child zone */
 	child_file.copy(cfile, child_file.length(), 0);
 
 	cfile[strlen(cfile)-1] = qbuf[1];
 	cfile[strlen(cfile)-2] = qbuf[0];
+
+        /* qbuf is no longer needed */
+        ldns_buffer_free(qname_buf);
+	free(qbuf);
 
 	/* check it exists */
 
