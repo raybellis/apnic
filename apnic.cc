@@ -621,9 +621,6 @@ int main(int argc, char *argv[])
 
 		switch (o) {
 			case 'h': argc--; argv++; host = *argv; break;
-			case 'u': argc--; ty = 0; break;
-			case 'i': argc--; ty = 1; break;
-			case 'v': argc--; ty = 2; break;
 			case 'd': argc--; argv++; dom = *argv; break;
 			case 'p': argc--; argv++; par = *argv; break;
 			case 'c': argc--; argv++; chi = *argv; break;
@@ -646,16 +643,7 @@ int main(int argc, char *argv[])
 	/* register callbacks and start it all up */
 	evldns_add_callback(p, NULL, LDNS_RR_CLASS_ANY, LDNS_RR_TYPE_ANY, query_check, NULL);
 
-	if (ty == 0) {
-		cback = new APNIC::APNIC (dom, key, par, chi, false, false);
-	} else if (ty == 1) {
-		cback = new APNIC::APNIC (dom, key, par, chi, true, true);
-	} else if (ty == 2) {
-		fprintf(stdout, "dom:%s key:%s par:%s chi:%s true, false\n", dom, key, par, chi);
-		cback = new APNIC::APNIC (dom, key, par, chi, true, false);
-	} else {
-		exit(1);
-	}
+	cback = new APNIC::APNIC (dom, key, par, chi, true, false);
 
 	evldns_add_callback(p, NULL, LDNS_RR_CLASS_IN, LDNS_RR_TYPE_ANY, apnic_callback, cback);
 
