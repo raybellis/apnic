@@ -544,8 +544,8 @@ int main(int argc, char *argv[])
 	APNIC apnic_valid("w.example.com.", "data/dnskey", "data/zone.parent", "data/zone.child", true, false);
 
 	/* setup evldns */
-	event_init();
-	evldns_server *p = evldns_add_server();
+	event_base *base = event_base_new();
+	evldns_server *p = evldns_add_server(base);
 	evldns_add_server_port(p, bind_to_udp4_port(53));
 	evldns_add_server_port(p, bind_to_tcp4_port(53, 10));
 
@@ -556,7 +556,7 @@ int main(int argc, char *argv[])
 	evldns_add_callback(p, NULL, LDNS_RR_CLASS_IN, LDNS_RR_TYPE_ANY, apnic_callback, &apnic_unsigned);
 	evldns_add_callback(p, NULL, LDNS_RR_CLASS_IN, LDNS_RR_TYPE_ANY, apnic_callback, &apnic_invalid);
 	evldns_add_callback(p, NULL, LDNS_RR_CLASS_IN, LDNS_RR_TYPE_ANY, apnic_callback, &apnic_valid);
-	event_dispatch();
+	event_base_dispatch(base);
 
 	return EXIT_SUCCESS;
 }
