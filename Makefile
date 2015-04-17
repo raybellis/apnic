@@ -9,7 +9,7 @@ LIBS_EVLDNS		= -Wl,-rpath,$(EVLDNS_PATH)/lib -L$(EVLDNS_PATH)/lib -levldns
 LIBS_LDNS		= -Wl,-rpath,$(LDNS_PATH)/lib -L$(LDNS_PATH)/lib -lldns
 LIBS_LIBEV		= -Wl,-rpath,$(LIBEV_PATH)/lib -L$(LIBEV_PATH)/lib -levent
 
-OBJS_APNIC		= apnic.o apnetwork.o
+OBJS_APNIC		= apnic.o
 LIBS_APNIC		= $(LIBS_EVLDNS) $(LIBS_LDNS) $(LIBS_LIBEV)
 
 all:			apnic

@@ -37,7 +37,6 @@
 #include <cstdio>
 
 #include <evldns.h>
-#include <apevldns.h>
 
 /* for stat() */
 #include <sys/types.h>
@@ -647,7 +646,7 @@ int main(int argc, char *argv[])
 
 	evldns_add_callback(p, NULL, LDNS_RR_CLASS_IN, LDNS_RR_TYPE_ANY, apnic_callback, cback);
 
-	event_dispatch(base);
+	event_base_dispatch(base);
 
 	return EXIT_SUCCESS;
 }
