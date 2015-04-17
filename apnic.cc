@@ -657,9 +657,6 @@ int main(int argc, char *argv[])
 
 	pthread_t	pts[threads];
 
-	int udp = bind_to_udp4_port(host, 53);
-	int tcp = bind_to_tcp4_port(host, 53, 10);
-
 	/* single state object shared by all threads */
 	APNIC *cback = new APNIC(dom, key, par, chi, true, false);
 
@@ -669,8 +666,7 @@ int main(int argc, char *argv[])
 		/* setup evldns once for each thread */
 		event_base *base = event_base_new();
 		evldns_server *p = evldns_add_server(base);
-		evldns_add_server_port(p, udp);
-		evldns_add_server_port(p, tcp);
+                evldns_add_server_all(p, host, "53", 10);
 
 		/* register callbacks and start it all up */
 		evldns_add_callback(p, NULL, LDNS_RR_CLASS_ANY, LDNS_RR_TYPE_ANY, query_check, NULL);
