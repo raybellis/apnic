@@ -11,7 +11,7 @@ foreach(prefix ${EvlDns_EXTRA_PREFIXES})
 endforeach()
 
 find_path(EVLDNS_INCLUDE_DIR evldns.h PATHS ${EvlDns_INCLUDE_PATHS})
-find_library(EVLDNS_LIB NAMES evldns_add_server_all PATHS ${EvlDns_LIB_PATHS})
+find_library(EVLDNS_LIB NAMES evldns PATHS ${EvlDns_LIB_PATHS})
 
 if (EVLDNS_LIB AND EVLDNS_INCLUDE_DIR)
   set(EvlDns_FOUND TRUE)
