@@ -628,10 +628,12 @@ int main(int argc, char *argv[])
 	argc--;
 	argv++;
 
-	char localhost[] = "127.0.0.1";
+	char default_host[] = "127.0.0.1";
+        char default_port[] = "53";
 
 	int ty = 3;
-	char *host = localhost; // can't be const because ap_bind_to_??p4_port() doesn't take a const argument
+	const char *host = default_host;
+        const char *port = default_port;
 	const char *dom = "";
 	const char *par = "";
 	const char *chi = "";	/* ty-loc-zonefile */
@@ -649,6 +651,7 @@ int main(int argc, char *argv[])
 			case 'c': argc--; argv++; chi = *argv; break;
 			case 'k': argc--; argv++; key = *argv; break;
 			case 't': argc--; argv++; threads = atoi(*argv); break;
+                        case 'P': argc--; argv++; port = *argv; break;
 			default: exit(1);
 		}
 		argc--;
@@ -666,7 +669,7 @@ int main(int argc, char *argv[])
 		/* setup evldns once for each thread */
 		event_base *base = event_base_new();
 		evldns_server *p = evldns_add_server(base);
-                evldns_add_server_all(p, host, "53", 10);
+                evldns_add_server_all(p, host, port, 10);
 
 		/* register callbacks and start it all up */
 		evldns_add_callback(p, NULL, LDNS_RR_CLASS_ANY, LDNS_RR_TYPE_ANY, query_check, NULL);
