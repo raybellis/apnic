@@ -455,7 +455,8 @@ void APNIC::child_callback(ldns_pkt *resp, ldns_rdf *qname, ldns_rr_type qtype, 
 
 	/* look up the zone from cache, or create a new one */
 	pthread_mutex_lock(&mutex);
-	APZone *apz = children[child];
+	ChildMap::iterator it = children.find(child);
+	APZone *apz = it == children.end() ? nullptr : it->second;
 	if (!apz) {
 		/* unlock temporarily while we do crypto */
 		pthread_mutex_unlock(&mutex);
@@ -472,8 +473,10 @@ void APNIC::child_callback(ldns_pkt *resp, ldns_rdf *qname, ldns_rr_type qtype, 
 			/* if it was, discard the newly created zone and use the old one again */
 			ldns_rdf_deep_free(child_origin);
 			delete apz;
+			apz = children[child_origin];
+		} else {
+			children[child_origin] = apz;
 		}
-		apz = children[child_origin];
 	}
 	pthread_mutex_unlock(&mutex);
  
