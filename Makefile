@@ -3,7 +3,7 @@ LDNS_PATH		= /opt/local
 LIBEV_PATH		= /opt/local
 
 CPPFLAGS		= -I$(EVLDNS_PATH)/include -I$(LDNS_PATH)/include -I$(LIBEV_PATH)/include
-CXXFLAGS		= -g -O3
+CXXFLAGS		= -Wall -Wextra -g -O3
 
 LIBS_EVLDNS		= -Wl,-rpath,$(EVLDNS_PATH)/lib -L$(EVLDNS_PATH)/lib -levldns
 LIBS_LDNS		= -Wl,-rpath,$(LDNS_PATH)/lib -L$(LDNS_PATH)/lib -lldns

@@ -526,7 +526,7 @@ void APNIC::callback(evldns_server_request *srq,
 	ldns_pkt_set_edns_do(resp, do_bit);
 
 	/* convert packet to wire format */
-	ldns_status status = ldns_pkt2wire(&srq->wire_response, resp, &srq->wire_resplen);
+	(void) ldns_pkt2wire(&srq->wire_response, resp, &srq->wire_resplen);
 
 	/* log it */
 	char host[NI_MAXHOST], port[NI_MAXSERV];
@@ -545,10 +545,11 @@ void APNIC::callback(evldns_server_request *srq,
 	char *qtype_str = ldns_rr_type2str(qtype);
 
 	fprintf(stdout,
-		"%ld.%06d client %s#%s: query: %s %s %s %s%s%s%s%s (%s) %d %lu\n",
+		"%ld.%06ld client %s#%s: query: %s %s %s %s%s%s%s%s (%s) %d %lu\n",
 		tv.tv_sec, tv.tv_usec,
 		host, port,
-		 ldns_buffer_export(qname_buf), qclass_str, qtype_str,
+		(char *)ldns_buffer_export(qname_buf),
+		qclass_str, qtype_str,
 		ldns_pkt_rd(req) ? "+" : "-",		// RD
 		edns ? "E" : "",					// EDNS
 		srq->is_tcp ? "T": "",				// TCP
@@ -625,6 +626,8 @@ void* orphan_dispatch(void *ptr)
 		sleep(1);
 		state->kill_orphans();
 	}
+
+	return NULL;
 }
 
 // --------------------------------------------------------------------
