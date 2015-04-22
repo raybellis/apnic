@@ -227,57 +227,51 @@ void APNIC::create_parent_zone()
 APZone *APNIC::create_child_zone(ldns_rdf *origin)
 {
 	/* to hold copy of child_file */
-	char	cfile[256];
-
-	/* to check file existence */
-	struct stat buffer;
-	int		 status;
+	string	cfile(child_file);
 
 	/* to check query attributes at front of name */
 	char *qbuf;
 
 	/* get string from query name, and check for which zone to serve */
-
 	ldns_buffer *qname_buf = ldns_buffer_new(256);
-		ldns_rdf2buffer_str_dname(qname_buf, origin);
-		qbuf = (char *)ldns_buffer_export(qname_buf);
+	ldns_rdf2buffer_str_dname(qname_buf, origin);
+	qbuf = (char *)ldns_buffer_export(qname_buf);
 
-	if	 (qbuf[2] == 'u') {
+	if (qbuf[2] == 'u') {
 		is_signed = false;
 		is_broken = false;
 	} else if (qbuf[2] == 'i') {
 		is_signed = true;
 		is_broken = true;
 	} else if (qbuf[2] == 's') {
-				is_signed = true;
-				is_broken = false;
-		} else {
+		is_signed = true;
+		is_broken = false;
+	} else {
 		is_signed = true;
 		is_broken = true;
 	}
 
 	/* create the specific child zone */
-	child_file.copy(cfile, child_file.length(), 0);
+	string::reverse_iterator r = cfile.rbegin();
+	r[0] = qbuf[1];
+	r[1] = qbuf[0];
 
-	cfile[strlen(cfile)-1] = qbuf[1];
-	cfile[strlen(cfile)-2] = qbuf[0];
+	/* qname_buf is no longer needed */
+	ldns_buffer_free(qname_buf);
 
-		/* qbuf is no longer needed */
-		ldns_buffer_free(qname_buf);
-	free(qbuf);
-
-	/* check it exists */
-
-	status = stat(cfile, &buffer);
+	/* to check file existence */
+	struct stat buffer;
+	int		 status;
+	status = stat(cfile.c_str(), &buffer);
 
 	/* serve base zone unsigned */
 	ldns_dnssec_zone *child_zone;
 
 	if (status != 0) {
-		fprintf(stdout, "can't serve %s\n", cfile);
+		fprintf(stdout, "can't serve %s\n", cfile.c_str());
 		child_zone = load_zone(origin, child_file);
 	} else {
-		fprintf(stdout, "serve %s\n", cfile);
+		fprintf(stdout, "serve %s\n", cfile.c_str());
 		child_zone = load_zone(origin, cfile);
 	}
 
@@ -537,6 +531,7 @@ void APNIC::callback(evldns_server_request *srq,
 
 	ldns_buffer *qname_buf = ldns_buffer_new(256);
 	ldns_rdf2buffer_str_dname(qname_buf, qname);
+	char *qname_str = (char *)ldns_buffer_export(qname_buf);
 	char *qclass_str = ldns_rr_class2str(qclass);
 	char *qtype_str = ldns_rr_type2str(qtype);
 
@@ -544,8 +539,7 @@ void APNIC::callback(evldns_server_request *srq,
 		"%ld.%06ld client %s#%s: query: %s %s %s %s%s%s%s%s (%s) %d %lu\n",
 		tv.tv_sec, tv.tv_usec,
 		host, port,
-		(char *)ldns_buffer_export(qname_buf),
-		qclass_str, qtype_str,
+		qname_str, qclass_str, qtype_str,
 		ldns_pkt_rd(req) ? "+" : "-",		// RD
 		edns ? "E" : "",					// EDNS
 		srq->is_tcp ? "T": "",				// TCP
@@ -556,6 +550,7 @@ void APNIC::callback(evldns_server_request *srq,
 		srq->wire_resplen
 	);
 
+	free(qname_str);
 	free(qtype_str);
 	free(qclass_str);
 	ldns_buffer_free(qname_buf);
