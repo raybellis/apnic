@@ -229,13 +229,12 @@ APZone *APNIC::create_child_zone(ldns_rdf *origin)
 	/* to hold copy of child_file */
 	string	cfile(child_file);
 
-	/* to check query attributes at front of name */
-	char *qbuf;
-
 	/* get string from query name, and check for which zone to serve */
 	ldns_buffer *qname_buf = ldns_buffer_new(256);
 	ldns_rdf2buffer_str_dname(qname_buf, origin);
-	qbuf = (char *)ldns_buffer_export(qname_buf);
+
+	/* to check query attributes at front of name */
+	char *qbuf = (char *)ldns_buffer_export(qname_buf);
 
 	if (qbuf[2] == 'u') {
 		is_signed = false;
@@ -258,11 +257,11 @@ APZone *APNIC::create_child_zone(ldns_rdf *origin)
 
 	/* qname_buf is no longer needed */
 	ldns_buffer_free(qname_buf);
+	free(qbuf);
 
 	/* to check file existence */
 	struct stat buffer;
-	int		 status;
-	status = stat(cfile.c_str(), &buffer);
+	int status = stat(cfile.c_str(), &buffer);
 
 	/* serve base zone unsigned */
 	ldns_dnssec_zone *child_zone;
