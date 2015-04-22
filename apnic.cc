@@ -490,9 +490,6 @@ void APNIC::callback(evldns_server_request *srq,
 	timeval tv;
 	gettimeofday(&tv, NULL);
 
-	/* expire old zone data */
-	kill_orphans();
-
 	/* check if the domain is an exact match or subdomain */
 	bool is_top_domain = (ldns_dname_compare(qname, origin) == 0);
 	bool is_sub_domain = !is_top_domain && ldns_dname_is_subdomain(qname, origin);
