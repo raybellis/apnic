@@ -295,10 +295,11 @@ APZone *APNIC::create_child_zone(ldns_rdf *origin)
 		/* if required, change the DS record RDATA so it doesn't actually
 		   match the given key, breaking the signature chain */
 		if (is_broken) {
-			ldns_rdf *rdata = ldns_rr_rdf(ds, 0);
-			uint8_t *raw = ldns_rdf_data(rdata);
-			raw[0] = ~raw[0]; /* Key Tag MSB */
-			raw[1] = ~raw[1]; /* Key Tag LSB */
+			uint16_t *tag = (uint16_t *)ldns_rdf_data(ldns_rr_rdf(ds, 0));
+			*tag ^= -1;			/* invert key tag bits */
+
+			uint8_t *hex = ldns_rdf_data(ldns_rr_rdf(ds, 3));
+			*hex ^= -1;			/* invert first byte of DS hex */
 		}
 
 		ldns_rr_list_push_rr(ds_list, ds);
