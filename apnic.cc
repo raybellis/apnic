@@ -235,25 +235,28 @@ APZone *APNIC::create_child_zone(ldns_rdf *origin)
 
 	/* to check query attributes at front of name */
 	char *qbuf = (char *)ldns_buffer_export(qname_buf);
+	int qlen = strlen(qbuf);
 
-	if (qbuf[2] == 'u') {
-		is_signed = false;
-		is_broken = false;
-	} else if (qbuf[2] == 'i') {
+	if (qlen >= 3) {
+		if (qbuf[2] == 'u') {
+			is_signed = false;
+			is_broken = false;
+		} else if (qbuf[2] == 'i') {
 		is_signed = true;
-		is_broken = true;
-	} else if (qbuf[2] == 's') {
-		is_signed = true;
-		is_broken = false;
-	} else {
-		is_signed = true;
-		is_broken = true;
+			is_broken = true;
+		} else if (qbuf[2] == 's') {
+			is_signed = true;
+			is_broken = false;
+		} else {
+			is_signed = true;
+			is_broken = true;
+		}
+
+		/* create the specific child zone */
+		string::reverse_iterator r = cfile.rbegin();
+		r[0] = qbuf[1];
+		r[1] = qbuf[0];
 	}
-
-	/* create the specific child zone */
-	string::reverse_iterator r = cfile.rbegin();
-	r[0] = qbuf[1];
-	r[1] = qbuf[0];
 
 	/* qname_buf is no longer needed */
 	ldns_buffer_free(qname_buf);
@@ -266,7 +269,7 @@ APZone *APNIC::create_child_zone(ldns_rdf *origin)
 	/* serve base zone unsigned */
 	ldns_dnssec_zone *child_zone;
 
-	if (status != 0) {
+	if (status != 0 || qlen < 3) {
 		fprintf(stdout, "can't serve %s\n", cfile.c_str());
 		child_zone = load_zone(origin, child_file);
 	} else {
@@ -296,7 +299,6 @@ APZone *APNIC::create_child_zone(ldns_rdf *origin)
 			uint8_t *raw = ldns_rdf_data(rdata);
 			raw[0] = ~raw[0]; /* Key Tag MSB */
 			raw[1] = ~raw[1]; /* Key Tag LSB */
-			raw[4] = ~raw[4]; /* Digest[0] */
 		}
 
 		ldns_rr_list_push_rr(ds_list, ds);
