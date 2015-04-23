@@ -102,7 +102,6 @@ private:
 	pthread_mutex_t					 mutex;
 
 private:
-	void kill_orphans();
 	ldns_dnssec_zone *load_zone(ldns_rdf *origin, string zonefile);
 	void sign_zone(ldns_dnssec_zone *zone, ldns_key_list *keys);
 	ldns_key_list *create_signing_key(ldns_rdf *origin);
@@ -119,6 +118,7 @@ public:
 	~APNIC();
 
 public:
+	void kill_orphans();
 	void callback(evldns_server_request *srq, ldns_rdf *qname, ldns_rr_type qtype, ldns_rr_class qclass);
 };
 
@@ -227,57 +227,53 @@ void APNIC::create_parent_zone()
 APZone *APNIC::create_child_zone(ldns_rdf *origin)
 {
 	/* to hold copy of child_file */
-	char	cfile[256];
+	string	cfile(child_file);
+
+	/* get string from query name, and check for which zone to serve */
+	ldns_buffer *qname_buf = ldns_buffer_new(256);
+	ldns_rdf2buffer_str_dname(qname_buf, origin);
+
+	/* to check query attributes at front of name */
+	char *qbuf = (char *)ldns_buffer_export(qname_buf);
+	int qlen = strlen(qbuf);
+
+	if (qlen >= 3) {
+		if (qbuf[2] == 'u') {
+			is_signed = false;
+			is_broken = false;
+		} else if (qbuf[2] == 'i') {
+		is_signed = true;
+			is_broken = true;
+		} else if (qbuf[2] == 's') {
+			is_signed = true;
+			is_broken = false;
+		} else {
+			is_signed = true;
+			is_broken = true;
+		}
+
+		/* create the specific child zone */
+		string::reverse_iterator r = cfile.rbegin();
+		r[0] = qbuf[1];
+		r[1] = qbuf[0];
+	}
+
+	/* qname_buf is no longer needed */
+	ldns_buffer_free(qname_buf);
+	free(qbuf);
 
 	/* to check file existence */
 	struct stat buffer;
-	int		 status;
-
-	/* to check query attributes at front of name */
-	char *qbuf;
-
-	/* get string from query name, and check for which zone to serve */
-
-	ldns_buffer *qname_buf = ldns_buffer_new(256);
-		ldns_rdf2buffer_str_dname(qname_buf, origin);
-		qbuf = (char *)ldns_buffer_export(qname_buf);
-
-	if	 (qbuf[2] == 'u') {
-		is_signed = false;
-		is_broken = false;
-	} else if (qbuf[2] == 'i') {
-		is_signed = true;
-		is_broken = true;
-	} else if (qbuf[2] == 's') {
-				is_signed = true;
-				is_broken = false;
-		} else {
-		is_signed = true;
-		is_broken = true;
-	}
-
-	/* create the specific child zone */
-	child_file.copy(cfile, child_file.length(), 0);
-
-	cfile[strlen(cfile)-1] = qbuf[1];
-	cfile[strlen(cfile)-2] = qbuf[0];
-
-		/* qbuf is no longer needed */
-		ldns_buffer_free(qname_buf);
-	free(qbuf);
-
-	/* check it exists */
-
-	status = stat(cfile, &buffer);
+	int status = stat(cfile.c_str(), &buffer);
 
 	/* serve base zone unsigned */
 	ldns_dnssec_zone *child_zone;
 
-	if (status != 0) {
-		fprintf(stdout, "can't serve %s\n", cfile);
+	if (status != 0 || qlen < 3) {
+		fprintf(stdout, "can't serve %s\n", cfile.c_str());
 		child_zone = load_zone(origin, child_file);
 	} else {
-		fprintf(stdout, "serve %s\n", cfile);
+		fprintf(stdout, "serve %s\n", cfile.c_str());
 		child_zone = load_zone(origin, cfile);
 	}
 
@@ -299,11 +295,11 @@ APZone *APNIC::create_child_zone(ldns_rdf *origin)
 		/* if required, change the DS record RDATA so it doesn't actually
 		   match the given key, breaking the signature chain */
 		if (is_broken) {
-			ldns_rdf *rdata = ldns_rr_rdf(ds, 0);
-			uint8_t *raw = ldns_rdf_data(rdata);
-			raw[0] = ~raw[0]; /* Key Tag MSB */
-			raw[1] = ~raw[1]; /* Key Tag LSB */
-			raw[4] = ~raw[4]; /* Digest[0] */
+			uint16_t *tag = (uint16_t *)ldns_rdf_data(ldns_rr_rdf(ds, 0));
+			*tag ^= -1;			/* invert key tag bits */
+
+			uint8_t *hex = ldns_rdf_data(ldns_rr_rdf(ds, 3));
+			*hex ^= -1;			/* invert first byte of DS hex */
 		}
 
 		ldns_rr_list_push_rr(ds_list, ds);
@@ -314,7 +310,9 @@ APZone *APNIC::create_child_zone(ldns_rdf *origin)
 	ldns_key_list_free(child_keys);
 
 	/* create RRSIGs over the DS - NB: requires the parent origin */
+	pthread_mutex_lock(&mutex);
 	ldns_rr_list *ds_rrsig = ldns_sign_public(ds_list, parent_keys);
+	pthread_mutex_unlock(&mutex);
 
 	return new APZone(child_zone, ds_list, ds_rrsig);
 }
@@ -420,13 +418,6 @@ void APNIC::synthesize_ds_record(ldns_pkt *resp, ldns_rdf *qname, APZone *apz, b
 
 void APNIC::kill_orphans()
 {
-	/* TODO: this should really be a C++11 std::atomic<int> */
-	static int attempts = 0;
-
-	/* Only do this every 100 queries */
-	if (++attempts < 100) return;
-	attempts = 0;
-
 	/* what time is it? */
 	time_t now = time((time_t *)0);
 	time_t then = now - 60;
@@ -456,26 +447,25 @@ void APNIC::child_callback(ldns_pkt *resp, ldns_rdf *qname, ldns_rr_type qtype, 
 	/* look up the zone from cache, or create a new one */
 	pthread_mutex_lock(&mutex);
 	ChildMap::iterator it = children.find(child);
-	APZone *apz = it == children.end() ? nullptr : it->second;
+	APZone *apz = (it == children.end()) ? NULL : it->second;
 	if (!apz) {
 		/* unlock temporarily while we do crypto */
 		pthread_mutex_unlock(&mutex);
 
 		/* do that crypto */
-		ldns_rdf *child_origin = ldns_rdf_clone(child);
-		apz = create_child_zone(child_origin);
+		apz = create_child_zone(child);
 
 		/* lock again while we update the map */
 		pthread_mutex_lock(&mutex);
 
 		/* make sure the map wasn't updated while we were signing */
-		if (children[child_origin]) {
-			/* if it was, discard the newly created zone and use the old one again */
-			ldns_rdf_deep_free(child_origin);
-			delete apz;
-			apz = children[child_origin];
+		if ((it = children.find(child)) == children.end()) {
+			ldns_rdf *child_key = ldns_rdf_clone(child);
+			children[child_key] = apz;
 		} else {
-			children[child_origin] = apz;
+			/* if it was, discard the newly created zone and use the old one again */
+			delete apz;
+			apz = it->second;
 		}
 	}
 	pthread_mutex_unlock(&mutex);
@@ -496,9 +486,6 @@ void APNIC::callback(evldns_server_request *srq,
 	/* log request time for later */
 	timeval tv;
 	gettimeofday(&tv, NULL);
-
-	/* expire old zone data */
-	kill_orphans();
 
 	/* check if the domain is an exact match or subdomain */
 	bool is_top_domain = (ldns_dname_compare(qname, origin) == 0);
@@ -533,7 +520,7 @@ void APNIC::callback(evldns_server_request *srq,
 	ldns_pkt_set_edns_do(resp, do_bit);
 
 	/* convert packet to wire format */
-	ldns_status status = ldns_pkt2wire(&srq->wire_response, resp, &srq->wire_resplen);
+	(void) ldns_pkt2wire(&srq->wire_response, resp, &srq->wire_resplen);
 
 	/* log it */
 	char host[NI_MAXHOST], port[NI_MAXSERV];
@@ -548,14 +535,15 @@ void APNIC::callback(evldns_server_request *srq,
 
 	ldns_buffer *qname_buf = ldns_buffer_new(256);
 	ldns_rdf2buffer_str_dname(qname_buf, qname);
+	char *qname_str = (char *)ldns_buffer_export(qname_buf);
 	char *qclass_str = ldns_rr_class2str(qclass);
 	char *qtype_str = ldns_rr_type2str(qtype);
 
 	fprintf(stdout,
-		"%ld.%06d client %s#%s: query: %s %s %s %s%s%s%s%s (%s) %d %lu\n",
+		"%ld.%06ld client %s#%s: query: %s %s %s %s%s%s%s%s (%s) %d %lu\n",
 		tv.tv_sec, tv.tv_usec,
 		host, port,
-		 ldns_buffer_export(qname_buf), qclass_str, qtype_str,
+		qname_str, qclass_str, qtype_str,
 		ldns_pkt_rd(req) ? "+" : "-",		// RD
 		edns ? "E" : "",					// EDNS
 		srq->is_tcp ? "T": "",				// TCP
@@ -566,6 +554,7 @@ void APNIC::callback(evldns_server_request *srq,
 		srq->wire_resplen
 	);
 
+	free(qname_str);
 	free(qtype_str);
 	free(qclass_str);
 	ldns_buffer_free(qname_buf);
@@ -624,6 +613,18 @@ void* thread_dispatch(void *ptr)
 	return NULL;
 }
 
+void* orphan_dispatch(void *ptr)
+{
+	APNIC *state = reinterpret_cast<APNIC *>(ptr);
+
+	while (1) {
+		sleep(1);
+		state->kill_orphans();
+	}
+
+	return NULL;
+}
+
 // --------------------------------------------------------------------
 
 int main(int argc, char *argv[])
@@ -632,11 +633,11 @@ int main(int argc, char *argv[])
 	argv++;
 
 	char default_host[] = "127.0.0.1";
-        char default_port[] = "53";
+	char default_port[] = "53";
 
 	int ty = 3;
 	const char *host = default_host;
-        const char *port = default_port;
+	const char *port = default_port;
 	const char *dom = "";
 	const char *par = "";
 	const char *chi = "";	/* ty-loc-zonefile */
@@ -654,17 +655,20 @@ int main(int argc, char *argv[])
 			case 'c': argc--; argv++; chi = *argv; break;
 			case 'k': argc--; argv++; key = *argv; break;
 			case 't': argc--; argv++; threads = atoi(*argv); break;
-                        case 'P': argc--; argv++; port = *argv; break;
+			case 'P': argc--; argv++; port = *argv; break;
 			default: exit(1);
 		}
 		argc--;
 		argv++;
 	}
 
-	pthread_t	pts[threads];
+	pthread_t	ptc, pts[threads];
 
 	/* single state object shared by all threads */
-	APNIC *cback = new APNIC(dom, key, par, chi, true, false);
+	APNIC *state = new APNIC(dom, key, par, chi, true, false);
+
+	/* single set of FDs shared by all threads */
+	int *fds = bind_to_all(host, port, 10);
 
 	/* TODO - drop privs here if running as root */
 
@@ -672,13 +676,15 @@ int main(int argc, char *argv[])
 		/* setup evldns once for each thread */
 		event_base *base = event_base_new();
 		evldns_server *p = evldns_add_server(base);
-                evldns_add_server_all(p, host, port, 10);
+		evldns_add_server_ports(p, fds);
 
 		/* register callbacks and start it all up */
 		evldns_add_callback(p, NULL, LDNS_RR_CLASS_ANY, LDNS_RR_TYPE_ANY, query_check, NULL);
-		evldns_add_callback(p, NULL, LDNS_RR_CLASS_IN, LDNS_RR_TYPE_ANY, apnic_callback, cback);
+		evldns_add_callback(p, NULL, LDNS_RR_CLASS_IN, LDNS_RR_TYPE_ANY, apnic_callback, state);
 		pthread_create(&pts[t], NULL, thread_dispatch, base);
 	}
+
+	pthread_create(&ptc, NULL, orphan_dispatch, state);
 
 	/* wait for all threads to finish (won't ever happen) */
 	for (int t = 0; t < threads; ++t) {
