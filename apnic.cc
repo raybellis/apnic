@@ -267,10 +267,10 @@ APZone *APNIC::create_child_zone(ldns_rdf *origin)
 	ldns_dnssec_zone *child_zone;
 
 	if (status != 0 || qlen < 3) {
-		fprintf(stdout, "can't serve %s\n", cfile.c_str());
+		// fprintf(stdout, "can't serve %s\n", cfile.c_str());
 		child_zone = load_zone(origin, child_file);
 	} else {
-		fprintf(stdout, "serve %s\n", cfile.c_str());
+		// fprintf(stdout, "serve %s\n", cfile.c_str());
 		child_zone = load_zone(origin, cfile);
 	}
 
@@ -312,7 +312,7 @@ APZone *APNIC::create_child_zone(ldns_rdf *origin)
 	return new APZone(child_zone, ds_list, ds_rrsig);
 }
 
-void APNIC::zone_lookup(ldns_pkt *resp, ldns_dnssec_zone *zone, ldns_rdf *qname, ldns_rr_type qtype, ldns_rr_class qclass, bool do_bit)
+void APNIC::zone_lookup(ldns_pkt *resp, ldns_dnssec_zone *zone, ldns_rdf *qname, ldns_rr_type qtype, ldns_rr_class /* qclass */, bool do_bit)
 {
 	/* cribbed from ldns_dnssec_zone_find_rrset */
 	ldns_rbnode_t *node = 0;
@@ -398,7 +398,7 @@ void APNIC::parent_callback(ldns_pkt *resp, ldns_rdf *qname, ldns_rr_type qtype,
 	zone_lookup(resp, parent_zone, qname, qtype, qclass, do_bit);
 }
 
-void APNIC::synthesize_ds_record(ldns_pkt *resp, ldns_rdf *qname, APZone *apz, bool do_bit)
+void APNIC::synthesize_ds_record(ldns_pkt *resp, ldns_rdf* /* qname */, APZone *apz, bool do_bit)
 {
 	ldns_rr_list *answer = ldns_pkt_answer(resp);
 
@@ -415,7 +415,7 @@ void APNIC::kill_orphans()
 {
 	/* what time is it? */
 	time_t now = time((time_t *)0);
-	time_t then = now - 60;
+	time_t then = now - 20;
 
 	pthread_mutex_lock(&mutex);
 	ChildMap::iterator it = children.begin();
@@ -566,8 +566,8 @@ void apnic_callback(evldns_server_request *srq, void *user_data,
 }
 
 /* rejects packets that arrive malformed */
-void query_check(evldns_server_request *srq, void *user_data,
-				 ldns_rdf *qname, ldns_rr_type qtype, ldns_rr_class qclass)
+void query_check(evldns_server_request *srq, void* /* user_data */,
+				 ldns_rdf* /* qname */, ldns_rr_type qtype, ldns_rr_class qclass)
 {
 	ldns_pkt *req = srq->request;
 
@@ -620,9 +620,16 @@ void* orphan_dispatch(void *ptr)
 	return NULL;
 }
 
-pthread_mutex_t *locks = NULL;
+// --------------------------------------------------------------------
 
-void threadsafe_locking(int mode, int n, const char *file, int line)
+pthread_mutex_t *locks;
+
+void static_thread_id(CRYPTO_THREADID *id)
+{
+	CRYPTO_THREADID_set_numeric(id, (unsigned long)pthread_self());
+}
+
+void static_lock_function(int mode, int n, const char* /* file */, int /* line */)
 {
 	if (mode & CRYPTO_LOCK) {
 		pthread_mutex_lock(&locks[n]);
@@ -631,9 +638,30 @@ void threadsafe_locking(int mode, int n, const char *file, int line)
 	}
 }
 
-void threadsafe_thread_id(CRYPTO_THREADID *id)
+struct CRYPTO_dynlock_value {
+	pthread_mutex_t		mutex;
+};
+
+CRYPTO_dynlock_value *dyn_create_function(const char* /* file */, int /* line */)
 {
-	CRYPTO_THREADID_set_numeric(id, (unsigned long)pthread_self());
+	CRYPTO_dynlock_value *lock = (CRYPTO_dynlock_value *)malloc(sizeof(*lock));
+	pthread_mutex_init(&lock->mutex, NULL);
+	return lock;
+}
+
+void dyn_lock_function(int mode, CRYPTO_dynlock_value *lock, const char* /* file */, int /* line */)
+{
+	if (mode & CRYPTO_LOCK) {
+		pthread_mutex_lock(&lock->mutex);
+	} else {
+		pthread_mutex_unlock(&lock->mutex);
+	}
+}
+
+void dyn_destroy_function(CRYPTO_dynlock_value *lock, const char* /* file */, int /* line */)
+{
+	pthread_mutex_destroy(&lock->mutex);
+	free(lock);
 }
 
 void threadsafe_openssl()
@@ -644,8 +672,13 @@ void threadsafe_openssl()
 		pthread_mutex_init(&locks[i], NULL);
 	}
 
-	CRYPTO_THREADID_set_callback(threadsafe_thread_id);
-	CRYPTO_set_locking_callback(threadsafe_locking);
+	CRYPTO_THREADID_set_callback(static_thread_id);
+	CRYPTO_set_locking_callback(static_lock_function); 
+
+	// dynamic locking
+	CRYPTO_set_dynlock_create_callback(dyn_create_function);
+	CRYPTO_set_dynlock_lock_callback(dyn_lock_function);
+	CRYPTO_set_dynlock_destroy_callback(dyn_destroy_function);
 }
 
 // --------------------------------------------------------------------
@@ -658,7 +691,6 @@ int main(int argc, char *argv[])
 	char default_host[] = "127.0.0.1";
 	char default_port[] = "53";
 
-	int ty = 3;
 	const char *host = default_host;
 	const char *port = default_port;
 	const char *dom = "";
@@ -691,7 +723,7 @@ int main(int argc, char *argv[])
 	APNIC *state = new APNIC(dom, key, par, chi, true, false);
 
 	/* single set of FDs shared by all threads */
-	int *fds = bind_to_all(host, port, 10);
+	int *fds = bind_to_all(host, port, 1024);
 
 	/* TODO - drop privs here if running as root */
 
