@@ -1,14 +1,10 @@
 $TTL 1m
-@	IN	SOA	alnitak73.dyndns.org. research.apnic.net.  (
+@	IN	SOA	twerp.rand.apnic.net. research.apnic.net.  (
 				2014100101	; Serial
 				3600		; Refresh
 				900			; Retry
 				1			; Expire
 				60 )		; Minimum
 
-	IN	NS		alnitak73.dyndns.org.
-
-x	IN  A       192.168.1.1
+	IN  NS		twerp.rand.apnic.net.
 	IN  A       192.168.1.2
-	IN	AAAA	2001::a
-	IN	TXT		"foo"
