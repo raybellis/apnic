@@ -633,7 +633,7 @@ void threadsafe_locking(int mode, int n, const char *file, int line)
 
 void threadsafe_thread_id(CRYPTO_THREADID *id)
 {
-	CRYPTO_THREADID_set_numeric(id, pthread_self());
+	CRYPTO_THREADID_set_numeric(id, (unsigned long)pthread_self());
 }
 
 void threadsafe_openssl()
