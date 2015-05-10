@@ -1,9 +1,10 @@
 /*
  * $Id: $
  *
- * Copyright (c) 2014, Nominet UK.
+ * Copyright (c) 2014 - 2015, Nominet UK.
+ * Copyright (c) 2015, Internet Systems Consortium, Inc. (ISC)
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  *	 * Redistributions of source code must retain the above copyright
@@ -11,14 +12,14 @@
  *	 * Redistributions in binary form must reproduce the above copyright
  *	   notice, this list of conditions and the following disclaimer in the
  *	   documentation and/or other materials provided with the distribution.
- *	 * Neither the name of Nominet UK nor the names of its contributors may
- *	   be used to endorse or promote products derived from this software
+ *	 * Neither the name of Nominet UK or ISC nor the names of its contributors
+ *	   may be used to endorse or promote products derived from this software
  *	   without specific prior written permission.
- * 
- * THIS SOFTWARE IS PROVIDED BY Nominet UK ''AS IS'' AND ANY
+ *
+ * THIS SOFTWARE IS PROVIDED BY Nominet UK and ISC ''AS IS'' AND ANY
  * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL Nominet UK BE LIABLE FOR ANY
+ * DISCLAIMED. IN NO EVENT SHALL Nominet UK or ISC BE LIABLE FOR ANY
  * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
  * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
  * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
@@ -467,7 +468,7 @@ void APNIC::child_callback(ldns_pkt *resp, ldns_rdf *qname, ldns_rr_type qtype, 
 		}
 	}
 	pthread_mutex_unlock(&mutex);
- 
+
 	/* pretend to be the parent zone if asking for a DS record */
 	if (label_count == 1 && qtype == LDNS_RR_TYPE_DS) {
 		synthesize_ds_record(resp, child, apz, do_bit);
@@ -676,12 +677,42 @@ void threadsafe_openssl()
 	}
 
 	CRYPTO_THREADID_set_callback(static_thread_id);
-	CRYPTO_set_locking_callback(static_lock_function); 
+	CRYPTO_set_locking_callback(static_lock_function);
 
 	// dynamic locking
 	CRYPTO_set_dynlock_create_callback(dyn_create_function);
 	CRYPTO_set_dynlock_lock_callback(dyn_lock_function);
 	CRYPTO_set_dynlock_destroy_callback(dyn_destroy_function);
+}
+
+// --------------------------------------------------------------------
+
+void instance(int threads, int *fds, APNIC *state)
+{
+	pthread_t	ptc, pts[threads];
+
+	if (threads > 1) {
+		threadsafe_openssl();
+	}
+
+	for (int t = 0; t < threads; ++t) {
+		/* setup evldns once for each thread */
+		event_base *base = event_base_new();
+		evldns_server *p = evldns_add_server(base);
+		evldns_add_server_ports(p, fds);
+
+		/* register callbacks and start it all up */
+		evldns_add_callback(p, NULL, LDNS_RR_CLASS_ANY, LDNS_RR_TYPE_ANY, query_check, NULL);
+		evldns_add_callback(p, NULL, LDNS_RR_CLASS_IN, LDNS_RR_TYPE_ANY, apnic_callback, state);
+		pthread_create(&pts[t], NULL, thread_dispatch, base);
+	}
+
+	pthread_create(&ptc, NULL, orphan_dispatch, state);
+
+	/* wait for all threads to finish (won't ever happen) */
+	for (int t = 0; t < threads; ++t) {
+		pthread_join(pts[t], NULL);
+	}
 }
 
 // --------------------------------------------------------------------
@@ -725,86 +756,30 @@ int main(int argc, char *argv[])
 	/* single set of FDs shared by all threads */
 	int *fds = bind_to_all(host, port, 1024);
 
-	pthread_t	ptc, pts[threads];
+	/* TODO - drop privs here if running as root */
+
 	/* single state object shared by all threads */
 	APNIC *state = new APNIC(dom, key, par, chi, true, false);
 
 	/* now we fork a farm */
 	if (forx > 1) {
-		int	forxed = 0;
-		for (forxed = 0; forxed < forx; forxed++) {
+		for (int forxed = 0; forxed < forx; forxed++) {
 			pid_t pid = fork();
 			if (pid == 0) {
-
-				// child process
-				/* TODO - drop privs here if running as root */
-			
-				/* make sure OpenSSL runs thread-safe */
-				if (threads > 1) {
-					threadsafe_openssl();
-				}
-			
-				for (int t = 0; t < threads; ++t) {
-					/* setup evldns once for each thread */
-					event_base *base = event_base_new();
-					evldns_server *p = evldns_add_server(base);
-					evldns_add_server_ports(p, fds);
-			
-					/* register callbacks and start it all up */
-					evldns_add_callback(p, NULL, LDNS_RR_CLASS_ANY, LDNS_RR_TYPE_ANY, query_check, NULL);
-					evldns_add_callback(p, NULL, LDNS_RR_CLASS_IN, LDNS_RR_TYPE_ANY, apnic_callback, state);
-					pthread_create(&pts[t], NULL, thread_dispatch, base);
-				}
-			
-				pthread_create(&ptc, NULL, orphan_dispatch, state);
-			
-				/* wait for all threads to finish (won't ever happen) */
-				for (int t = 0; t < threads; ++t) {
-					pthread_join(pts[t], NULL);
-				}
-			
-				return EXIT_SUCCESS;
+				instance(threads, fds, state);
 			} else if (pid > 0) {
-				// parent process
 				fprintf(stdout, "fork(%d)\n", pid);
 			} else {
-				// fork failed
 				fprintf(stdout, "fork() failed!\n");
-				return 1;
+				return EXIT_FAILURE;
 			}
 		}
 		// parent, wait for children
-		int cstat = 0;
-		pid_t wpid;
-		while ((wpid = wait(&cstat)) > 0);
+		while (wait(NULL) > 0);
+
 	} else {
-
-		/* TODO - drop privs here if running as root */
-	
-		/* make sure OpenSSL runs thread-safe */
-		if (threads > 1) {
-			threadsafe_openssl();
-		}
-
-		for (int t = 0; t < threads; ++t) {
-			/* setup evldns once for each thread */
-			event_base *base = event_base_new();
-			evldns_server *p = evldns_add_server(base);
-			evldns_add_server_ports(p, fds);
-
-			/* register callbacks and start it all up */
-			evldns_add_callback(p, NULL, LDNS_RR_CLASS_ANY, LDNS_RR_TYPE_ANY, query_check, NULL);
-			evldns_add_callback(p, NULL, LDNS_RR_CLASS_IN, LDNS_RR_TYPE_ANY, apnic_callback, state);
-			pthread_create(&pts[t], NULL, thread_dispatch, base);
-		}
-	
-		pthread_create(&ptc, NULL, orphan_dispatch, state);
-	
-		/* wait for all threads to finish (won't ever happen) */
-		for (int t = 0; t < threads; ++t) {
-			pthread_join(pts[t], NULL);
-		}
-	
-		return EXIT_SUCCESS;
+		instance(threads, fds, state);
 	}
+
+	return EXIT_SUCCESS;
 }
