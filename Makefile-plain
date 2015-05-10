@@ -4,7 +4,7 @@ LIBEV_PATH		= /usr/local
 LIBOPENSSL_PATH	= /usr/local
 
 CPPFLAGS		= -I$(EVLDNS_PATH)/include -I$(LDNS_PATH)/include -I$(LIBEV_PATH)/include
-CXXFLAGS		= -Wall -Wextra -g -O3
+CXXFLAGS		= -g -O3
 
 LIBS_EVLDNS		= -Wl,-rpath,$(EVLDNS_PATH)/lib -L$(EVLDNS_PATH)/lib -levldns
 LIBS_LDNS		= -Wl,-rpath,$(LDNS_PATH)/lib -L$(LDNS_PATH)/lib -lldns

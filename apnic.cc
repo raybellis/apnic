@@ -39,6 +39,7 @@
 #include <evldns.h>
 #include <pthread.h>
 #include <unistd.h>
+#include <sys/wait.h>
 
 #include <openssl/crypto.h>
 
@@ -307,7 +308,9 @@ APZone *APNIC::create_child_zone(ldns_rdf *origin)
 	ldns_key_list_free(child_keys);
 
 	/* create RRSIGs over the DS - NB: requires the parent origin */
+	pthread_mutex_lock(&mutex);
 	ldns_rr_list *ds_rrsig = ldns_sign_public(ds_list, parent_keys);
+	pthread_mutex_unlock(&mutex);
 
 	return new APZone(child_zone, ds_list, ds_rrsig);
 }
@@ -698,6 +701,7 @@ int main(int argc, char *argv[])
 	const char *chi = "";	/* ty-loc-zonefile */
 	const char *key = "";
 	int			threads = 1;
+	int			forx = 1;
 
 	while (argc > 0 && **argv=='-') {
 
@@ -711,45 +715,96 @@ int main(int argc, char *argv[])
 			case 'k': argc--; argv++; key = *argv; break;
 			case 't': argc--; argv++; threads = atoi(*argv); break;
 			case 'P': argc--; argv++; port = *argv; break;
+			case 'n': argc--; argv++; forx = atoi(*argv); break;
 			default: exit(1);
 		}
 		argc--;
 		argv++;
 	}
 
-	pthread_t	ptc, pts[threads];
-
-	/* single state object shared by all threads */
-	APNIC *state = new APNIC(dom, key, par, chi, true, false);
-
 	/* single set of FDs shared by all threads */
 	int *fds = bind_to_all(host, port, 1024);
 
-	/* TODO - drop privs here if running as root */
+	pthread_t	ptc, pts[threads];
+	/* single state object shared by all threads */
+	APNIC *state = new APNIC(dom, key, par, chi, true, false);
 
-	/* make sure OpenSSL runs thread-safe */
-	if (threads > 1) {
-		threadsafe_openssl();
+	/* now we fork a farm */
+	if (forx > 1) {
+		int	forxed = 0;
+		for (forxed = 0; forxed < forx; forxed++) {
+			pid_t pid = fork();
+			if (pid == 0) {
+
+				// child process
+				/* TODO - drop privs here if running as root */
+			
+				/* make sure OpenSSL runs thread-safe */
+				if (threads > 1) {
+					threadsafe_openssl();
+				}
+			
+				for (int t = 0; t < threads; ++t) {
+					/* setup evldns once for each thread */
+					event_base *base = event_base_new();
+					evldns_server *p = evldns_add_server(base);
+					evldns_add_server_ports(p, fds);
+			
+					/* register callbacks and start it all up */
+					evldns_add_callback(p, NULL, LDNS_RR_CLASS_ANY, LDNS_RR_TYPE_ANY, query_check, NULL);
+					evldns_add_callback(p, NULL, LDNS_RR_CLASS_IN, LDNS_RR_TYPE_ANY, apnic_callback, state);
+					pthread_create(&pts[t], NULL, thread_dispatch, base);
+				}
+			
+				pthread_create(&ptc, NULL, orphan_dispatch, state);
+			
+				/* wait for all threads to finish (won't ever happen) */
+				for (int t = 0; t < threads; ++t) {
+					pthread_join(pts[t], NULL);
+				}
+			
+				return EXIT_SUCCESS;
+			} else if (pid > 0) {
+				// parent process
+				fprintf(stdout, "fork(%d)\n", pid);
+			} else {
+				// fork failed
+				fprintf(stdout, "fork() failed!\n");
+				return 1;
+			}
+		}
+		// parent, wait for children
+		int cstat = 0;
+		pid_t wpid;
+		while ((wpid = wait(&cstat)) > 0);
+	} else {
+
+		/* TODO - drop privs here if running as root */
+	
+		/* make sure OpenSSL runs thread-safe */
+		if (threads > 1) {
+			threadsafe_openssl();
+		}
+
+		for (int t = 0; t < threads; ++t) {
+			/* setup evldns once for each thread */
+			event_base *base = event_base_new();
+			evldns_server *p = evldns_add_server(base);
+			evldns_add_server_ports(p, fds);
+
+			/* register callbacks and start it all up */
+			evldns_add_callback(p, NULL, LDNS_RR_CLASS_ANY, LDNS_RR_TYPE_ANY, query_check, NULL);
+			evldns_add_callback(p, NULL, LDNS_RR_CLASS_IN, LDNS_RR_TYPE_ANY, apnic_callback, state);
+			pthread_create(&pts[t], NULL, thread_dispatch, base);
+		}
+	
+		pthread_create(&ptc, NULL, orphan_dispatch, state);
+	
+		/* wait for all threads to finish (won't ever happen) */
+		for (int t = 0; t < threads; ++t) {
+			pthread_join(pts[t], NULL);
+		}
+	
+		return EXIT_SUCCESS;
 	}
-
-	for (int t = 0; t < threads; ++t) {
-		/* setup evldns once for each thread */
-		event_base *base = event_base_new();
-		evldns_server *p = evldns_add_server(base);
-		evldns_add_server_ports(p, fds);
-
-		/* register callbacks and start it all up */
-		evldns_add_callback(p, NULL, LDNS_RR_CLASS_ANY, LDNS_RR_TYPE_ANY, query_check, NULL);
-		evldns_add_callback(p, NULL, LDNS_RR_CLASS_IN, LDNS_RR_TYPE_ANY, apnic_callback, state);
-		pthread_create(&pts[t], NULL, thread_dispatch, base);
-	}
-
-	pthread_create(&ptc, NULL, orphan_dispatch, state);
-
-	/* wait for all threads to finish (won't ever happen) */
-	for (int t = 0; t < threads; ++t) {
-		pthread_join(pts[t], NULL);
-	}
-
-	return EXIT_SUCCESS;
 }
