@@ -306,9 +306,7 @@ APZone *APNIC::create_child_zone(ldns_rdf *origin)
 	ldns_key_list_free(child_keys);
 
 	/* create RRSIGs over the DS - NB: requires the parent origin */
-	pthread_mutex_lock(&mutex);
 	ldns_rr_list *ds_rrsig = ldns_sign_public(ds_list, parent_keys);
-	pthread_mutex_unlock(&mutex);
 
 	return new APZone(child_zone, ds_list, ds_rrsig);
 }
