@@ -90,8 +90,6 @@ private:
 	string							 key_file;
 	string							 parent_file;
 	string							 child_file;
-	bool							 is_signed;
-	bool							 is_broken;
 
 private:
 	ldns_rdf						*origin;
@@ -114,7 +112,7 @@ private:
 	void child_callback(ldns_pkt *resp, ldns_rdf *qname, ldns_rr_type qtype, ldns_rr_class qclass, bool do_bit);
 
 public:
-	APNIC(string domain, string keyfile, string parentfile, string childfile, bool is_signed = false, bool is_broken = false);
+	APNIC(string domain, string keyfile, string parentfile, string childfile);
 	~APNIC();
 
 public:
@@ -141,8 +139,8 @@ void rr_list_cat_rr_list_clone(ldns_rr_list *dst, ldns_rr_list *src)
 
 // --------------------------------------------------------------------
 
-APNIC::APNIC(string domain, string key_file, string parent_file, string child_file, bool is_signed, bool is_broken)
-: key_file(key_file), parent_file(parent_file), child_file(child_file), is_signed(is_signed), is_broken(is_broken)
+APNIC::APNIC(string domain, string key_file, string parent_file, string child_file)
+: key_file(key_file), parent_file(parent_file), child_file(child_file)
 {
 	origin = ldns_dname_new_frm_str(domain.c_str());
 	origin_count = ldns_dname_label_count(origin);
@@ -237,19 +235,18 @@ APZone *APNIC::create_child_zone(ldns_rdf *origin)
 	char *qbuf = (char *)ldns_buffer_export(qname_buf);
 	int qlen = strlen(qbuf);
 
+	/* default state */
+	bool is_signed = true;
+	bool is_broken = true;
+
 	if (qlen >= 3) {
 		if (qbuf[2] == 'u') {
 			is_signed = false;
 			is_broken = false;
 		} else if (qbuf[2] == 'i') {
-		is_signed = true;
-			is_broken = true;
+			// no change
 		} else if (qbuf[2] == 's') {
-			is_signed = true;
 			is_broken = false;
-		} else {
-			is_signed = true;
-			is_broken = true;
 		}
 
 		/* create the specific child zone */
@@ -318,6 +315,9 @@ APZone *APNIC::create_child_zone(ldns_rdf *origin)
 
 void APNIC::zone_lookup(ldns_pkt *resp, ldns_dnssec_zone *zone, ldns_rdf *qname, ldns_rr_type qtype, ldns_rr_class /* qclass */, bool do_bit)
 {
+	/* check if the zone was signed */
+	bool is_signed = zone->soa->nsec;
+
 	/* cribbed from ldns_dnssec_zone_find_rrset */
 	ldns_rbnode_t *node = 0;
 	int match = ldns_rbtree_find_less_equal(zone->names, qname, &node);
@@ -759,7 +759,7 @@ int main(int argc, char *argv[])
 	/* TODO - drop privs here if running as root */
 
 	/* single state object shared by all threads */
-	APNIC *state = new APNIC(dom, key, par, chi, true, false);
+	APNIC *state = new APNIC(dom, key, par, chi);
 
 	/* now we fork a farm */
 	if (forx > 1) {
