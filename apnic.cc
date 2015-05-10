@@ -40,7 +40,9 @@
 #include <evldns.h>
 #include <pthread.h>
 #include <unistd.h>
+#include <time.h>
 #include <sys/wait.h>
+#include <fcntl.h>
 
 #include <openssl/crypto.h>
 
@@ -98,6 +100,8 @@ private:
 	ldns_key_list					*parent_keys;
 	ChildMap						 children;
 	pthread_mutex_t					 mutex;
+	time_t							 loglast;
+	int								 logfd;
 
 private:
 	ldns_dnssec_zone *load_zone(ldns_rdf *origin, string zonefile);
@@ -110,6 +114,7 @@ private:
 	void synthesize_ds_record(ldns_pkt *resp, ldns_rdf *qname, APZone *apz, bool do_bit);
 	void parent_callback(ldns_pkt *resp, ldns_rdf *qname, ldns_rr_type qtype, ldns_rr_class qclass, bool do_bit);
 	void child_callback(ldns_pkt *resp, ldns_rdf *qname, ldns_rr_type qtype, ldns_rr_class qclass, bool do_bit);
+	int openlog(time_t t);
 
 public:
 	APNIC(string domain, string keyfile, string parentfile, string childfile);
@@ -147,6 +152,9 @@ APNIC::APNIC(string domain, string key_file, string parent_file, string child_fi
 
 	create_parent_zone();
 	pthread_mutex_init(&mutex, NULL);
+
+	logfd = -1;
+	openlog(time(NULL));
 }
 
 APNIC::~APNIC()
@@ -160,7 +168,7 @@ ldns_key_list *APNIC::create_signing_key(ldns_rdf *origin)
 {
 	FILE *fp = fopen(key_file.c_str(), "r");
 	if (!fp) {
-		throw std::runtime_error("popen: " + string(strerror(errno)));
+		throw std::runtime_error("open key file: " + string(strerror(errno)));
 	}
 
 	ldns_key *key;
@@ -184,7 +192,7 @@ ldns_dnssec_zone *APNIC::load_zone(ldns_rdf *origin, string zonefile)
 	/* load zone file */
 	FILE *fp = fopen(zonefile.c_str(), "r");
 	if (!fp) {
-		throw std::runtime_error("popen: " + string(strerror(errno)));
+		throw std::runtime_error("open zone file: " + zonefile + " - " + string(strerror(errno)));
 	}
 	ldns_status status = ldns_dnssec_zone_new_frm_fp(&zone, fp, origin, 60, LDNS_RR_CLASS_IN);
 	fclose(fp);
@@ -477,6 +485,23 @@ void APNIC::child_callback(ldns_pkt *resp, ldns_rdf *qname, ldns_rr_type qtype, 
 	ldns_rdf_deep_free(child);
 }
 
+int APNIC::openlog(time_t t)
+{
+	static int interval = 86400;
+
+	if (logfd < 0 || (t % interval < loglast % interval)) {
+		close(logfd);
+		char path[_POSIX_PATH_MAX];
+
+		time_t tzero = t - t % interval;
+		strftime(path, _POSIX_PATH_MAX, "apnic-%F.log", gmtime(&tzero));
+		logfd = open(path, O_CREAT | O_WRONLY | O_APPEND, 0644);
+	}
+	loglast = t;
+
+	return logfd > 0 ? logfd : 0;
+}
+
 void APNIC::callback(evldns_server_request *srq,
 				 ldns_rdf *qname, ldns_rr_type qtype, ldns_rr_class qclass)
 {
@@ -536,7 +561,9 @@ void APNIC::callback(evldns_server_request *srq,
 	char *qclass_str = ldns_rr_class2str(qclass);
 	char *qtype_str = ldns_rr_type2str(qtype);
 
-	fprintf(stdout,
+	char logbuffer[2048];
+
+	int n = snprintf(logbuffer, sizeof(logbuffer),
 		"%ld.%06ld client %s#%s: query: %s %s %s %s%s%s%s%s (%s) %d %lu\n",
 		tv.tv_sec, tv.tv_usec,
 		host, port,
@@ -550,6 +577,10 @@ void APNIC::callback(evldns_server_request *srq,
 		ldns_pkt_get_rcode(resp),			// RCODE
 		srq->wire_resplen
 	);
+
+	if (n < sizeof(logbuffer)) {
+		write(openlog(tv.tv_sec), logbuffer, n);
+	}
 
 	free(qname_str);
 	free(qtype_str);
