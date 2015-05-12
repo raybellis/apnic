@@ -421,11 +421,41 @@ void APNIC::synthesize_ds_record(ldns_pkt *resp, ldns_rdf* qname, APZone *apz, b
 
 		/* if the DS doesn't even exist, create an NSEC record for it */
 		if (!apz->ds) {
+
 			ldns_rr_list *authority = ldns_pkt_authority(resp);
-			ldns_rr* nsec = ldns_create_nsec(qname, qname, NULL);
-			ldns_rr_list_push_rr(authority, nsec);
-			ldns_rr_list *rrsig = ldns_sign_public(authority, parent_keys);
-			ldns_rr_list_push_rr_list(authority, rrsig);
+
+			/* include the SOA */
+			ldns_dnssec_name *soa = parent_zone->soa;
+			ldns_dnssec_rrsets *rrsets = ldns_dnssec_name_find_rrset(soa, LDNS_RR_TYPE_SOA);
+
+			if (rrsets) {
+				rr_list_cat_dnssec_rrs_clone(authority, rrsets->rrs);
+				if (do_bit) {
+					/* and its signature */
+					rr_list_cat_dnssec_rrs_clone(authority, rrsets->signatures);
+
+					/* SOA's NSEC and RRSIGS */
+					ldns_rr_list_push_rr(authority, ldns_rr_clone(soa->nsec));
+					rr_list_cat_dnssec_rrs_clone(authority, soa->nsec_signatures);
+				}
+			}
+
+			if (do_bit) {
+				/* owner name NSEC and RRSIGS */
+				ldns_rr *nsec = ldns_create_nsec(qname, qname, NULL);
+
+				/* fake NS type field */
+				ldns_nsec_bitmap_set_type(ldns_nsec_get_bitmap(nsec), LDNS_RR_TYPE_NS);
+				ldns_rr_list *nsecs = ldns_rr_list_new();
+				ldns_rr_list_push_rr(nsecs, nsec);
+
+				/* sign it */
+				ldns_rr_list *rrsigs = ldns_sign_public(nsecs, parent_keys);
+
+				/* add to the response */
+				ldns_rr_list_push_rr_list(authority, nsecs);
+				ldns_rr_list_push_rr_list(authority, rrsigs);
+			}
 		}
 	}
 }
