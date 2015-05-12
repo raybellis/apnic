@@ -433,10 +433,6 @@ void APNIC::synthesize_ds_record(ldns_pkt *resp, ldns_rdf* qname, APZone *apz, b
 				if (do_bit) {
 					/* and its signature */
 					rr_list_cat_dnssec_rrs_clone(authority, rrsets->signatures);
-
-					/* SOA's NSEC and RRSIGS */
-					ldns_rr_list_push_rr(authority, ldns_rr_clone(soa->nsec));
-					rr_list_cat_dnssec_rrs_clone(authority, soa->nsec_signatures);
 				}
 			}
 
