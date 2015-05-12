@@ -408,7 +408,7 @@ void APNIC::parent_callback(ldns_pkt *resp, ldns_rdf *qname, ldns_rr_type qtype,
 	zone_lookup(resp, parent_zone, qname, qtype, qclass, do_bit);
 }
 
-void APNIC::synthesize_ds_record(ldns_pkt *resp, ldns_rdf* /* qname */, APZone *apz, bool do_bit)
+void APNIC::synthesize_ds_record(ldns_pkt *resp, ldns_rdf* qname, APZone *apz, bool do_bit)
 {
 	ldns_rr_list *answer = ldns_pkt_answer(resp);
 
@@ -418,6 +418,15 @@ void APNIC::synthesize_ds_record(ldns_pkt *resp, ldns_rdf* /* qname */, APZone *
 	/* include RRSIG over the DS, if required */
 	if (do_bit) {
 		rr_list_cat_rr_list_clone(answer, apz->ds_rrsig);
+
+		/* if the DS doesn't even exist, create an NSEC record for it */
+		if (!apz->ds) {
+			ldns_rr_list *authority = ldns_pkt_authority(resp);
+			ldns_rr* nsec = ldns_create_nsec(qname, qname, NULL);
+			ldns_rr_list_push_rr(authority, nsec);
+			ldns_rr_list *rrsig = ldns_sign_public(authority, parent_keys);
+			ldns_rr_list_push_rr_list(authority, rrsig);
+		}
 	}
 }
 
