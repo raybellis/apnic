@@ -442,7 +442,10 @@ void APNIC::synthesize_ds_record(ldns_pkt *resp, ldns_rdf* qname, APZone *apz, b
 
 			if (do_bit) {
 				/* owner name NSEC and RRSIGS */
-				ldns_rr *nsec = ldns_create_nsec(qname, qname, NULL);
+				ldns_rdf *next = ldns_dname_new_frm_data(3, (void *)"\001\000\000");
+				ldns_dname_cat(next, qname);
+				ldns_rr *nsec = ldns_create_nsec(qname, next, NULL);
+				ldns_rdf_deep_free(next);
 
 				/* fake NS type field */
 				ldns_nsec_bitmap_set_type(ldns_nsec_get_bitmap(nsec), LDNS_RR_TYPE_NS);
