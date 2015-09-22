@@ -44,6 +44,12 @@
 #include <sys/wait.h>
 #include <fcntl.h>
 
+#include <limits.h>
+
+#if MALLOC_DEBUG
+#include <malloc.h>
+#endif
+
 #include <openssl/crypto.h>
 
 using std::string;
@@ -92,6 +98,7 @@ private:
 	string							 key_file;
 	string							 parent_file;
 	string							 child_file;
+	string							 log_path;
 
 private:
 	ldns_rdf						*origin;
@@ -117,7 +124,7 @@ private:
 	int openlog(time_t t);
 
 public:
-	APNIC(string domain, string keyfile, string parentfile, string childfile);
+	APNIC(string domain, string keyfile, string parentfile, string childfile, string logpath);
 	~APNIC();
 
 public:
@@ -144,8 +151,8 @@ void rr_list_cat_rr_list_clone(ldns_rr_list *dst, ldns_rr_list *src)
 
 // --------------------------------------------------------------------
 
-APNIC::APNIC(string domain, string key_file, string parent_file, string child_file)
-: key_file(key_file), parent_file(parent_file), child_file(child_file)
+APNIC::APNIC(string domain, string key_file, string parent_file, string child_file, string log_path)
+: key_file(key_file), parent_file(parent_file), child_file(child_file), log_path(log_path)
 {
 	origin = ldns_dname_new_frm_str(domain.c_str());
 	origin_count = ldns_dname_label_count(origin);
@@ -180,6 +187,7 @@ ldns_key_list *APNIC::create_signing_key(ldns_rdf *origin)
 
 	ldns_key_list *list = ldns_key_list_new();
 	ldns_key_set_pubkey_owner(key, ldns_rdf_clone(origin));
+	ldns_key_set_inception(key, (time(NULL)-3600));
 	ldns_key_list_push_key(list, key);
 
 	return list;
@@ -433,6 +441,10 @@ void APNIC::synthesize_ds_record(ldns_pkt *resp, ldns_rdf* qname, APZone *apz, b
 				if (do_bit) {
 					/* and its signature */
 					rr_list_cat_dnssec_rrs_clone(authority, rrsets->signatures);
+
+					/* SOA's NSEC and RRSIGS */
+					/* ldns_rr_list_push_rr(authority, ldns_rr_clone(soa->nsec)); */
+					/* rr_list_cat_dnssec_rrs_clone(authority, soa->nsec_signatures); */
 				}
 			}
 
@@ -454,6 +466,10 @@ void APNIC::synthesize_ds_record(ldns_pkt *resp, ldns_rdf* qname, APZone *apz, b
 				/* add to the response */
 				ldns_rr_list_push_rr_list(authority, nsecs);
 				ldns_rr_list_push_rr_list(authority, rrsigs);
+
+				/* free the local lists  - the authority section now owns the RRs */
+				ldns_rr_list_free(rrsigs);
+				ldns_rr_list_free(nsecs);
 			}
 		}
 	}
@@ -486,6 +502,13 @@ void APNIC::child_callback(ldns_pkt *resp, ldns_rdf *qname, ldns_rr_type qtype, 
 	int qname_count = ldns_dname_label_count(qname);
 	int label_count = qname_count - origin_count;
 	ldns_rdf *child = ldns_dname_clone_from(qname, label_count - 1);
+
+	/* there isn't really a wildcard here */
+	if (ldns_dname_is_wildcard(child)) {
+		ldns_pkt_set_rcode(resp, LDNS_RCODE_REFUSED);
+		ldns_rdf_deep_free(child);
+		return;
+	}
 
 	/* look up the zone from cache, or create a new one */
 	pthread_mutex_lock(&mutex);
@@ -532,7 +555,7 @@ int APNIC::openlog(time_t t)
 		char path[_POSIX_PATH_MAX];
 
 		time_t tzero = t - t % interval;
-		strftime(path, _POSIX_PATH_MAX, "apnic-%F.log", gmtime(&tzero));
+		strftime(path, _POSIX_PATH_MAX, log_path.c_str(), gmtime(&tzero));
 		logfd = open(path, O_CREAT | O_WRONLY | O_APPEND, 0644);
 	}
 	loglast = t;
@@ -616,7 +639,7 @@ void APNIC::callback(evldns_server_request *srq,
 		srq->wire_resplen
 	);
 
-	if (n < sizeof(logbuffer)) {
+	if (n < (int) sizeof(logbuffer)) {
 		write(openlog(tv.tv_sec), logbuffer, n);
 	}
 
@@ -691,6 +714,19 @@ void* orphan_dispatch(void *ptr)
 	return NULL;
 }
 
+#if MALLOC_DEBUG
+void* memory_stats(void *)
+{
+	while (1) {
+		malloc_stats();
+		malloc_info(0, stderr);
+		sleep(60);
+	}
+
+	return NULL;
+}
+#endif
+
 // --------------------------------------------------------------------
 
 pthread_mutex_t *locks;
@@ -754,9 +790,15 @@ void threadsafe_openssl()
 
 // --------------------------------------------------------------------
 
+
+// --------------------------------------------------------------------
+
 void instance(int threads, int *fds, APNIC *state)
 {
 	pthread_t	ptc, pts[threads];
+#if MALLOC_DEBUG
+	pthread_t	ptm;
+#endif
 
 	if (threads > 1) {
 		threadsafe_openssl();
@@ -775,6 +817,9 @@ void instance(int threads, int *fds, APNIC *state)
 	}
 
 	pthread_create(&ptc, NULL, orphan_dispatch, state);
+#if MALLOC_DEBUG
+	pthread_create(&ptm, NULL, memory_stats, NULL);
+#endif
 
 	/* wait for all threads to finish (won't ever happen) */
 	for (int t = 0; t < threads; ++t) {
@@ -798,6 +843,7 @@ int main(int argc, char *argv[])
 	const char *par = "";
 	const char *chi = "";	/* ty-loc-zonefile */
 	const char *key = "";
+	const char *logpath = "./queries-%F.log";
 	int			threads = 1;
 	int			forx = 1;
 
@@ -814,6 +860,7 @@ int main(int argc, char *argv[])
 			case 't': argc--; argv++; threads = atoi(*argv); break;
 			case 'P': argc--; argv++; port = *argv; break;
 			case 'n': argc--; argv++; forx = atoi(*argv); break;
+			case 'l': argc--; argv++; logpath = *argv; break;
 			default: exit(1);
 		}
 		argc--;
@@ -826,7 +873,7 @@ int main(int argc, char *argv[])
 	/* TODO - drop privs here if running as root */
 
 	/* single state object shared by all threads */
-	APNIC *state = new APNIC(dom, key, par, chi);
+	APNIC *state = new APNIC(dom, key, par, chi, logpath);
 
 	/* now we fork a farm */
 	if (forx > 1) {
