@@ -626,7 +626,7 @@ void APNIC::callback(evldns_server_request *srq,
 
 	int n = snprintf(logbuffer, sizeof(logbuffer),
 		"%ld.%06ld client %s#%s: query: %s %s %s %s%s%s%s%s (%s) %d %lu\n",
-		tv.tv_sec, tv.tv_usec,
+		(unsigned long)tv.tv_sec, (unsigned long)tv.tv_usec,
 		host, port,
 		qname_str, qclass_str, qtype_str,
 		ldns_pkt_rd(req) ? "+" : "-",		// RD
@@ -873,14 +873,14 @@ int main(int argc, char *argv[])
 	/* TODO - drop privs here if running as root */
 
 	/* single state object shared by all threads */
-	APNIC *state = new APNIC(dom, key, par, chi, logpath);
+	APNIC state(dom, key, par, chi, logpath);
 
 	/* now we fork a farm */
 	if (forx > 1) {
 		for (int forxed = 0; forxed < forx; forxed++) {
 			pid_t pid = fork();
 			if (pid == 0) {
-				instance(threads, fds, state);
+				instance(threads, fds, &state);
 			} else if (pid > 0) {
 				fprintf(stdout, "fork(%d)\n", pid);
 			} else {
@@ -892,7 +892,7 @@ int main(int argc, char *argv[])
 		while (wait(NULL) > 0);
 
 	} else {
-		instance(threads, fds, state);
+		instance(threads, fds, &state);
 	}
 
 	return EXIT_SUCCESS;
