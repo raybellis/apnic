@@ -534,7 +534,6 @@ void APNIC::child_callback(ldns_pkt *resp, ldns_rdf *qname, ldns_rr_type qtype, 
 			apz = it->second;
 		}
 	}
-	pthread_mutex_unlock(&mutex);
 
 	/* pretend to be the parent zone if asking for a DS record */
 	if (label_count == 1 && qtype == LDNS_RR_TYPE_DS) {
@@ -544,6 +543,7 @@ void APNIC::child_callback(ldns_pkt *resp, ldns_rdf *qname, ldns_rr_type qtype, 
 	}
 
 	ldns_rdf_deep_free(child);
+	pthread_mutex_unlock(&mutex);
 }
 
 int APNIC::openlog(time_t t)
