@@ -112,6 +112,7 @@ private:
 
 private:
 	ldns_dnssec_zone *load_zone(ldns_rdf *origin, string zonefile);
+	void add_keys(ldns_dnssec_zone *zone, ldns_key_list *keys);
 	void sign_zone(ldns_dnssec_zone *zone, ldns_key_list *keys);
 	ldns_key_list *create_signing_key(ldns_rdf *origin);
 	void create_parent_zone();
@@ -212,15 +213,16 @@ ldns_dnssec_zone *APNIC::load_zone(ldns_rdf *origin, string zonefile)
 	return zone;
 }
 
-void APNIC::sign_zone(ldns_dnssec_zone *zone, ldns_key_list *keys)
+void APNIC::add_keys(ldns_dnssec_zone *zone, ldns_key_list *keys)
 {
-	/* add them to the zone */
 	for (int i = 0, n = ldns_key_list_key_count(keys); i < n; ++i) {
 		ldns_rr *rr = ldns_key2rr(ldns_key_list_key(keys, i));
 		ldns_dnssec_zone_add_rr(zone, rr);
 	}
+}
 
-	/* and sign it */
+void APNIC::sign_zone(ldns_dnssec_zone *zone, ldns_key_list *keys)
+{
 	ldns_rr_list *new_rrs = ldns_rr_list_new();
 	ldns_status status = ldns_dnssec_zone_sign(zone, new_rrs, keys, ldns_dnssec_default_replace_signatures, 0);
 	if (status != LDNS_STATUS_OK) {
@@ -235,6 +237,7 @@ void APNIC::create_parent_zone()
 {
 	parent_zone = load_zone(origin, parent_file);
 	parent_keys = create_signing_key(this->origin);
+	add_keys(parent_zone, parent_keys);
 	sign_zone(parent_zone, parent_keys);
 }
 
