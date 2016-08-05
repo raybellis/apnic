@@ -296,9 +296,12 @@ APZone *APNIC::create_child_zone(ldns_rdf *origin)
 		return new APZone(child_zone, NULL, NULL);
 	}
 
-	/* sign the child zone */
 	ldns_key_list *child_keys = create_signing_key(origin);
+	/* add child keys to the zone */
+	add_keys(child_zone, child_keys);
+	/* sign the child zone */
 	sign_zone(child_zone, child_keys);
+
 
 	/* create a list of DS record for this child, relying on key's
 	   public owner being set by previous function */
